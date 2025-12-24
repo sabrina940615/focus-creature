@@ -14,9 +14,18 @@ class InhibitoryControlGame {
         this.errorDistribution = { early: 0, mid: 0, late: 0 };
         this.lastNumberTime = 0;
         this.numberInterval = null;
+        this.displayTimeout = null;
         this.timerInterval = null;
         this.onComplete = null;
-        this.hasClickedCurrent = false; // 追蹤當前數字是否已被點擊
+        this.hasClickedCurrent = false;
+
+        // 新參數：固定數字序列
+        this.numberSequence = [];
+        this.currentIndex = 0;
+        this.TOTAL_NUMBERS = 50;      // 總共50個數字
+        this.COUNT_OF_3 = 10;         // 10個數字3 (20%)
+        this.ISI = 600;               // 出現間隔 0.6秒 (600ms)
+        this.DISPLAY_TIME = 400;      // 顯示時間 0.4秒 (400ms)
     }
 
     init(onComplete) {
@@ -43,6 +52,68 @@ class InhibitoryControlGame {
         }, { passive: false });
     }
 
+    // 生成隨機數字序列（確保3不連續出現）
+    generateSequence() {
+        let sequence = [];
+
+        // 加入10個數字3
+        for (let i = 0; i < this.COUNT_OF_3; i++) {
+            sequence.push(3);
+        }
+
+        // 加入40個非3數字 (1,2,4,5,6,7,8,9)
+        const nonThrees = [1, 2, 4, 5, 6, 7, 8, 9];
+        for (let i = 0; i < this.TOTAL_NUMBERS - this.COUNT_OF_3; i++) {
+            sequence.push(nonThrees[Math.floor(Math.random() * nonThrees.length)]);
+        }
+
+        // 洗牌算法
+        for (let i = sequence.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [sequence[i], sequence[j]] = [sequence[j], sequence[i]];
+        }
+
+        // 確保3不連續出現
+        let maxAttempts = 100;
+        while (this.hasConsecutiveThrees(sequence) && maxAttempts > 0) {
+            sequence = this.fixConsecutiveThrees(sequence);
+            maxAttempts--;
+        }
+
+        return sequence;
+    }
+
+    // 檢查是否有連續的3
+    hasConsecutiveThrees(sequence) {
+        for (let i = 0; i < sequence.length - 1; i++) {
+            if (sequence[i] === 3 && sequence[i + 1] === 3) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // 修復連續的3
+    fixConsecutiveThrees(sequence) {
+        for (let i = 0; i < sequence.length - 1; i++) {
+            if (sequence[i] === 3 && sequence[i + 1] === 3) {
+                // 找一個非3的位置來交換
+                for (let j = i + 2; j < sequence.length; j++) {
+                    if (sequence[j] !== 3) {
+                        // 確保交換後不會造成新的連續3
+                        const canSwap = (j === 0 || sequence[j - 1] !== 3) &&
+                            (j === sequence.length - 1 || sequence[j + 1] !== 3);
+                        if (canSwap) {
+                            [sequence[i + 1], sequence[j]] = [sequence[j], sequence[i + 1]];
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        return sequence;
+    }
+
     reset() {
         this.isRunning = false;
         this.timeLeft = 30;
@@ -55,6 +126,8 @@ class InhibitoryControlGame {
         this.reactionTimes = [];
         this.errorDistribution = { early: 0, mid: 0, late: 0 };
         this.hasClickedCurrent = false;
+        this.numberSequence = [];
+        this.currentIndex = 0;
 
         this.gameNumber.textContent = '準備';
         this.gameTime.textContent = '30';
@@ -68,6 +141,9 @@ class InhibitoryControlGame {
         this.reset();
         this.isRunning = true;
         this.startBtn.classList.add('hidden');
+
+        // 生成數字序列
+        this.numberSequence = this.generateSequence();
 
         // Countdown with Chinese numbers
         const countdownNumbers = ['三', '二', '一'];
@@ -86,8 +162,6 @@ class InhibitoryControlGame {
     }
 
     beginGame() {
-        this.showNextNumber();
-
         // Timer
         this.timerInterval = setInterval(() => {
             this.timeLeft--;
@@ -98,31 +172,39 @@ class InhibitoryControlGame {
             }
         }, 1000);
 
-        // Show numbers at random intervals
-        this.scheduleNextNumber();
+        // 開始顯示數字序列
+        this.showNextNumber();
     }
 
     scheduleNextNumber() {
-        // 延長顯示時間：1200-2000ms，給用戶更多反應時間
-        const delay = 1200 + Math.random() * 800;
+        // 固定間隔 0.6 秒
         this.numberInterval = setTimeout(() => {
-            if (this.isRunning) {
+            if (this.isRunning && this.currentIndex < this.TOTAL_NUMBERS) {
                 // 如果是非3數字且沒有點擊，計為 miss
                 if (!this.hasClickedCurrent && this.currentNumber !== null && this.currentNumber !== 3) {
                     this.missCount++;
                 }
                 this.showNextNumber();
-                this.scheduleNextNumber();
+            } else if (this.currentIndex >= this.TOTAL_NUMBERS) {
+                // 所有數字已顯示完畢
+                this.end();
             }
-        }, delay);
+        }, this.ISI);
     }
 
     showNextNumber() {
-        // Generate random number 1-9
-        this.currentNumber = Math.floor(Math.random() * 9) + 1;
+        if (this.currentIndex >= this.TOTAL_NUMBERS) {
+            this.end();
+            return;
+        }
+
+        // 從預生成序列取數字
+        this.currentNumber = this.numberSequence[this.currentIndex];
+        this.currentIndex++;
+
         this.gameNumber.textContent = this.currentNumber;
         this.lastNumberTime = Date.now();
-        this.hasClickedCurrent = false; // 重置點擊狀態
+        this.hasClickedCurrent = false;
         this.gameArea.classList.remove('correct', 'error');
 
         // 追蹤出現的數字類型
@@ -134,6 +216,14 @@ class InhibitoryControlGame {
 
         // Set all numbers to black for better visibility
         this.gameNumber.style.color = '#000000';
+
+        // 0.4秒後隱藏數字，開始下一個間隔
+        this.displayTimeout = setTimeout(() => {
+            if (this.isRunning) {
+                this.gameNumber.textContent = '';
+                this.scheduleNextNumber();
+            }
+        }, this.DISPLAY_TIME);
     }
 
     handleClick() {
@@ -164,25 +254,17 @@ class InhibitoryControlGame {
             this.gameArea.classList.add('correct');
         }
 
-        // 視覺反饋後清除並立即跳到下一個數字
+        // 視覺反饋後清除（不跳轉，保持固定時序）
         setTimeout(() => {
             this.gameArea.classList.remove('correct', 'error');
         }, 150);
-
-        // 立即跳到下一個數字（清除當前計時器，立即顯示新數字）
-        clearTimeout(this.numberInterval);
-        setTimeout(() => {
-            if (this.isRunning) {
-                this.showNextNumber();
-                this.scheduleNextNumber();
-            }
-        }, 50); // 極短延遲，幾乎立即切換
     }
 
     end() {
         this.isRunning = false;
         clearInterval(this.timerInterval);
         clearTimeout(this.numberInterval);
+        clearTimeout(this.displayTimeout);
 
         const results = this.getResults();
 
